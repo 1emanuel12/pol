@@ -63,3 +63,145 @@ class LevelUpMessage {
                     // go one extra layer deep lmao
                     else if (val && typeof val == "object" && !Array.isArray(val)) {
                         for (const [key2, val2] of Object.entries(val)) {
+                            if (typeof val2 == "string") mbedJSON[key][key2] = this.subVariables(val2)
+                        }
+                    } // <--- ¡Esta llave de cierre es la que probablemente faltaba en tu línea 66!
+                }
+
+                // add vars to fields
+                    if (mbedJSON.fields && mbedJSON.fields.length) {
+                    mbedJSON.fields = mbedJSON.fields.map(f => ({ name: this.subVariables(f.name), value: this.subVariables(f.value), inline: f.inline }))
+                }
+                
+                this.msg = { embeds: [ mbedJSON ] }
+                if (mbed.extraContent) this.msg.content = this.subVariables(mbed.extraContent)
+            }
+        }
+
+        else this.msg =  { content: this.subVariables(this.msg) }
+
+        if (this.msg) this.msg.reply = { messageReference: message.id }
+    }
+
+    subVariables(msg) {
+
+        if (!msg) return msg
+        let newMsg = msg.replace(/\n/g, "　")
+        let newLevel = this.level
+
+        // simple variables
+        let vars = this.variables        
+        newMsg = newMsg.replace(/\[\[[A-Z@_ ]+\]\]/g, function(str) {
+            let v = str.slice(2, -2).trim()
+            return vars[v] ?? str
+        })
+
+        // random choose
+        newMsg = newMsg.replace(/\[\[\s*CHOOSE.+?\]\]/g, function(str) {
+            let pool = []
+            let totalWeight = 0
+            let choose = str.slice(2, -2).split(/(?<!\|)\|(?!\|)/).map(x => x.trim()).filter(x => x) // split at one | but not more
+            choose[0] = choose[0].replace(/^\s*CHOOSE\s*/, "")
+            if (!choose[0]) choose.shift()
+
+            let chooseRegex = /^<([\d.]+)>\s+/
+            if (choose.some(x => x.match(chooseRegex))) { // if list has weighting...
+                choose.forEach(c => {
+                    let weightMatch = c.match(chooseRegex)
+                    let weight = weightMatch ? (Number(weightMatch[1])) || 1 : 1
+                    if (weight > 0) {
+                        weight = tools.clamp(Math.round(weight * 500), 1, 1e6)
+                        pool.push({ msg: c.replace(chooseRegex, ""), weight, index: totalWeight })
+                        totalWeight += weight
+                    }
+                })
+    
+                let roll = tools.rng(0, totalWeight)
+                let finalChoice = pool.reverse().find(x => roll >= x.index)
+                return finalChoice.msg
+            }
+
+            else return tools.choose(choose)
+        })
+
+        // if level
+        newMsg = newMsg.replace(new RegExp(ifLevelRegex, "g"), function(str) {
+            let match = str.match(ifLevelRegex)
+            let [all, operation, lvl, data] = match
+            if (!data) return
+            data = (data).trim()
+            lvl = Number(lvl)
+            if (isNaN(lvl)) return ""
+
+            switch (operation.trim()) {
+                case ">": return (newLevel > lvl ? data : "")
+                case "<": return (newLevel < lvl ? data : "")
+                case ">=": case "=>": return (newLevel >= lvl ? data : "")
+                case "<=": case "=<": return (newLevel <= lvl ? data : "")
+                case "!=": case "=!": case "=/": case "=/=": return (newLevel != lvl ? data : "")
+                case "/": case "%": return (newLevel % lvl == 0 ? data : "")
+                default: return (newLevel == lvl ? data : "")
+            }
+        })
+        
+        let rewardRoles = this.rewardRoles
+
+        // if role
+        newMsg = newMsg.replace(/\[\[\s*IFROLE\s*\|.+?\]\]/g, function(str) {
+            if (!rewardRoles.length) return ""
+            else return str.split("|").slice(1).join("|").slice(0, -2)
+        })
+
+        // if no role
+        newMsg = newMsg.replace(/\[\[\s*IFNOROLE\s*\|.+?\]\]/g, function(str) {
+            if (rewardRoles.length) return ""
+            else return str.split("|").slice(1).join("|").slice(0, -2)
+        })
+
+        // nth
+        newMsg = newMsg.replace(new RegExp(ordinalRegex, "g"), function(str) {
+            let match = str.match(ordinalRegex)
+            if (match) {
+                let num = (Number(match[1]) || 0)
+                let spacing = match[2] || ""
+                return `${num}${spacing}${ordinal(num)}`
+            }
+        }).replace(/\[\[\s*NTH\s*\]\]/g, "")
+
+        return newMsg.replace(/　/g, "\n").trim()
+
+    }
+
+    async send() {
+        if (!this.msg || this.invalid) return
+
+        // 🛑 Lógica modificada para forzar el canal de envío 🛑
+        
+        // 1. **REEMPLAZA ESTE VALOR:** Pega aquí el ID del canal de Discord (ej: #niveles).
+        const ID_CANAL_OBJETIVO = "TU_ID_DE_CANAL_AQUÍ"; 
+        
+        let ch;
+
+        // Si se ha proporcionado un ID válido (no la cadena de texto de marcador de posición)
+        if (ID_CANAL_OBJETIVO && ID_CANAL_OBJETIVO !== "TU_ID_DE_CANAL_AQUÍ") {
+            // Intenta encontrar el canal por el ID fijo
+            ch = await this.userMessage.guild.channels.fetch(ID_CANAL_OBJETIVO).catch(() => {});
+        } 
+        
+        // Si el canal objetivo no es válido o no se ha configurado (o si quieres el comportamiento original)
+        if (!ch) {
+            // Lógica original de la base de datos (current channel, DM, o ID de DB)
+            let sendChannel = this.channel
+            ch = (sendChannel == "current") ? this.userMessage.channel
+                : (sendChannel == "dm") ? this.userMessage.author
+                : await this.userMessage.guild.channels.fetch(sendChannel).catch(() => {})
+        }
+        
+        // El resto del código de la función send()
+        if (ch && ch.id) ch.send(this.msg).catch((e) => {
+            ch.send(`**Error sending level up message!**\n\`\`\`${e.message}\`\`\`\n(anyways, congrats on level ${this.variables.LEVEL}!)`).catch(() => {})
+        })
+    } 
+} 
+
+module.exports = LevelUpMessage;
