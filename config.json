@@ -1,0 +1,14 @@
+{
+  "test_server_ids": ["1428161685616595024"],
+
+  "developer_ids": ["901157163781750834"],
+
+  "lockBotToDevOnly": false,
+  
+  "enableWebServer": true,
+  "serverPort": 6880,
+  "siteURL": "http://localhost:6880",
+  
+  "changelogURL": "",
+  "supportURL": ""
+}
